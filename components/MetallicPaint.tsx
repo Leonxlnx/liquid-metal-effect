@@ -299,12 +299,35 @@ const MetallicPaint: React.FC<MetallicPaintProps> = ({ imageData, params, classN
         const uLiquidLoc = gl.getUniformLocation(program, 'u_liquid');
 
         let animationFrameId: number;
-        const startTime = Date.now();
+        
+        // Animation State
+        let lastTime = performance.now();
+        let totalTime = 0;
+        // Initialize with initial props to prevent jump on start
+        const currentParams = { ...paramsRef.current };
 
         const render = () => {
-            const p = paramsRef.current;
-            const time = Date.now() - startTime;
+            const targetParams = paramsRef.current;
+            const now = performance.now();
+            const dt = now - lastTime;
+            lastTime = now;
             
+            // LERP Factor: 0.05 provides a very smooth, organic transition
+            const lerp = 0.05;
+
+            // Smoothly interpolate all parameters
+            currentParams.speed += (targetParams.speed - currentParams.speed) * lerp;
+            currentParams.liquid += (targetParams.liquid - currentParams.liquid) * lerp;
+            currentParams.patternScale += (targetParams.patternScale - currentParams.patternScale) * lerp;
+            currentParams.refraction += (targetParams.refraction - currentParams.refraction) * lerp;
+            currentParams.edge += (targetParams.edge - currentParams.edge) * lerp;
+            currentParams.patternBlur += (targetParams.patternBlur - currentParams.patternBlur) * lerp;
+
+            // Accumulate time based on the SMOOTHED speed
+            // This prevents the "jump" when speed changes, because we add relative time
+            // rather than calculating absolute time * speed.
+            totalTime += dt * currentParams.speed;
+
             // Resize canvas if needed
             const displayWidth = canvas.clientWidth;
             const displayHeight = canvas.clientHeight;
@@ -316,14 +339,14 @@ const MetallicPaint: React.FC<MetallicPaintProps> = ({ imageData, params, classN
 
             // Uniforms
             gl.uniform1i(uImageTextureLoc, 0);
-            gl.uniform1f(uTimeLoc, time * p.speed);
+            gl.uniform1f(uTimeLoc, totalTime);
             gl.uniform1f(uRatioLoc, canvas.width / canvas.height);
             gl.uniform1f(uImgRatioLoc, imageData.width / imageData.height);
-            gl.uniform1f(uPatternScaleLoc, p.patternScale);
-            gl.uniform1f(uRefractionLoc, p.refraction);
-            gl.uniform1f(uEdgeLoc, p.edge);
-            gl.uniform1f(uPatternBlurLoc, p.patternBlur);
-            gl.uniform1f(uLiquidLoc, p.liquid);
+            gl.uniform1f(uPatternScaleLoc, currentParams.patternScale);
+            gl.uniform1f(uRefractionLoc, currentParams.refraction);
+            gl.uniform1f(uEdgeLoc, currentParams.edge);
+            gl.uniform1f(uPatternBlurLoc, currentParams.patternBlur);
+            gl.uniform1f(uLiquidLoc, currentParams.liquid);
 
             gl.drawArrays(gl.TRIANGLES, 0, 6);
             animationFrameId = requestAnimationFrame(render);

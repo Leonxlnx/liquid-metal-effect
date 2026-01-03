@@ -88,7 +88,7 @@ const LiquidButton: React.FC<LiquidButtonProps> = ({
         Layer 2: The "Clean" Inner Button.
       */}
       <div 
-        className="absolute z-10 bg-black flex items-center justify-center transition-all duration-300 ease-out"
+        className="absolute z-10 bg-black flex items-center justify-center transition-all duration-500 ease-out"
         style={{
           top: borderSize,
           left: borderSize,
@@ -97,7 +97,7 @@ const LiquidButton: React.FC<LiquidButtonProps> = ({
           borderRadius: 9999
         }}
       >
-        <div className="w-full h-full rounded-full bg-black flex items-center justify-center border border-white/10 group-hover:bg-neutral-900 transition-colors">
+        <div className="w-full h-full rounded-full bg-black flex items-center justify-center border border-white/10 group-hover:bg-neutral-900 transition-colors duration-500">
           <span className="text-white font-medium tracking-[0.25em] uppercase text-xs md:text-sm">
             {text}
           </span>
