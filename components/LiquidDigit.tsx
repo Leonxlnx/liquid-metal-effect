@@ -19,10 +19,8 @@ const LiquidDigit: React.FC<LiquidDigitProps> = ({
     let active = true;
 
     async function generateDigitShape() {
-      // Create SVG blob. Text must be BLACK (#000000) because the shader calculates liquid
-      // based on (1.0 - brightness). Black = 0 = Max Liquid Effect.
-      // Background is transparent (alpha 0).
-      // FONT SIZE REDUCED to 0.7 to prevent clipping of liquid edges
+      // Create SVG blob. Text must be BLACK (#000000).
+      // FONT SIZE REDUCED to 0.55 to provide massive padding for liquid distortion
       const svgString = `
         <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
           <style>
@@ -38,7 +36,7 @@ const LiquidDigit: React.FC<LiquidDigitProps> = ({
             dominant-baseline="middle" 
             text-anchor="middle" 
             class="text" 
-            font-size="${height * 0.7}px"
+            font-size="${height * 0.55}px"
           >${value}</text>
         </svg>
       `;
@@ -49,7 +47,6 @@ const LiquidDigit: React.FC<LiquidDigitProps> = ({
       try {
         const parsed = await parseLogoImage(file);
         if (active && parsed?.imageData) {
-          // Update the display only when the new image is ready
           setDisplayedImageData(parsed.imageData);
         }
       } catch (err) {
@@ -62,7 +59,7 @@ const LiquidDigit: React.FC<LiquidDigitProps> = ({
     return () => { active = false; };
   }, [value, width, height]);
 
-  // Params tuned for "Chrome Liquid" - smooth, high reflection
+  // Params tuned for "Chrome Liquid"
   const paintParams = useMemo(() => ({
     edge: 0.5, 
     patternBlur: 0.005, 
@@ -73,7 +70,6 @@ const LiquidDigit: React.FC<LiquidDigitProps> = ({
   }), []);
 
   if (!displayedImageData) {
-    // Initial loading state (only happens once on first mount)
     return (
         <div style={{ width, height }} className="flex items-center justify-center">
             <span className="text-white/20 font-bold text-8xl animate-pulse opacity-0">{value}</span>
@@ -82,7 +78,7 @@ const LiquidDigit: React.FC<LiquidDigitProps> = ({
   }
 
   return (
-    <div style={{ width, height }} className="relative overflow-hidden">
+    <div style={{ width, height }} className="relative overflow-hidden flex items-center justify-center">
         <MetallicPaint 
             imageData={displayedImageData} 
             params={paintParams}
