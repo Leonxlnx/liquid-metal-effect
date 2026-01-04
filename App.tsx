@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import LiquidButton from './components/LiquidButton';
+import LiquidDigit from './components/LiquidDigit';
 
-// 1. Noise Overlay (Film Grain)
+// --- VISUAL FX COMPONENTS ---
+
 const NoiseOverlay = () => (
-  <div className="fixed inset-0 z-50 pointer-events-none opacity-[0.04] mix-blend-overlay">
+  <div className="fixed inset-0 z-50 pointer-events-none opacity-[0.05] mix-blend-overlay">
     <svg className='w-full h-full'>
       <filter id="noise">
         <feTurbulence type="fractalNoise" baseFrequency="0.80" numOctaves="3" stitchTiles="stitch" />
@@ -13,138 +16,327 @@ const NoiseOverlay = () => (
   </div>
 );
 
-// 2. Liquid Distortion Filter for Text
-// This creates the "underwater" wobbling effect on the main headline
-const LiquidTextFilter = () => (
-  <svg className="absolute w-0 h-0">
-    <defs>
-      <filter id="liquid-flow">
-        <feTurbulence type="fractalNoise" baseFrequency="0.01 0.005" numOctaves="5" seed="2" result="noise">
-          <animate attributeName="baseFrequency" dur="20s" values="0.01 0.005; 0.02 0.009; 0.01 0.005" repeatCount="indefinite" />
-        </feTurbulence>
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="12" />
-      </filter>
-    </defs>
-  </svg>
-);
-
-// 3. Ambient Fluid Background
-// Moving blobs to make the void feel "liquid"
 const FluidBackground = () => (
   <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
-    <div className="absolute top-[10%] left-[10%] w-[40vw] h-[40vw] bg-neutral-800/20 rounded-full blur-[120px] mix-blend-screen animate-blob" />
-    <div className="absolute top-[40%] right-[10%] w-[35vw] h-[35vw] bg-neutral-900/40 rounded-full blur-[120px] mix-blend-screen animate-blob animation-delay-2000" />
-    <div className="absolute bottom-[0%] left-[30%] w-[50vw] h-[50vw] bg-white/5 rounded-full blur-[150px] mix-blend-overlay animate-blob animation-delay-4000" />
+    <div className="absolute top-[20%] left-[20%] w-[60vw] h-[60vw] bg-neutral-900/40 rounded-full blur-[120px] mix-blend-screen animate-blob" />
+    <div className="absolute bottom-[10%] right-[10%] w-[50vw] h-[50vw] bg-white/5 rounded-full blur-[150px] mix-blend-overlay animate-blob animation-delay-2000" />
   </div>
 );
 
+// --- HELPERS ---
+
+const pad = (n: number) => n.toString().padStart(2, '0');
+
+// --- MAIN APP ---
+
 export default function App() {
+  const [appMode, setAppMode] = useState<'timer' | 'alarm'>('timer'); // Top level switch
+  const [status, setStatus] = useState<'idle' | 'running' | 'paused' | 'ringing'>('idle');
+  
+  // Timer State
+  const [timerInput, setTimerInput] = useState({ h: 0, m: 5, s: 0 });
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const endTimeRef = useRef<number>(0);
+  
+  // Alarm State
+  const [alarmInput, setAlarmInput] = useState({ h: 8, m: 0 });
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Audio Ref
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  // --- LOGIC ---
+
+  // Clock Ticker for Alarm check & Timer loop
+  useEffect(() => {
+    let animationFrameId: number;
+
+    const tick = () => {
+      const now = Date.now();
+      setCurrentTime(new Date());
+
+      if (status === 'running') {
+        if (appMode === 'timer') {
+          // Timer Logic
+          const left = Math.ceil((endTimeRef.current - now) / 1000);
+          if (left <= 0) {
+            setRemainingSeconds(0);
+            setStatus('ringing');
+          } else {
+            setRemainingSeconds(left);
+          }
+        } else if (appMode === 'alarm') {
+          // Alarm Logic
+          const nowObj = new Date();
+          if (
+            nowObj.getHours() === alarmInput.h && 
+            nowObj.getMinutes() === alarmInput.m && 
+            nowObj.getSeconds() === 0
+          ) {
+            setStatus('ringing');
+          }
+        }
+      }
+
+      animationFrameId = requestAnimationFrame(tick);
+    };
+
+    animationFrameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [status, appMode, alarmInput]);
+
+
+  const handleStart = () => {
+    if (appMode === 'timer') {
+      const total = (timerInput.h * 3600) + (timerInput.m * 60) + timerInput.s;
+      if (total === 0) return;
+      setRemainingSeconds(total);
+      endTimeRef.current = Date.now() + (total * 1000);
+    } 
+    // Alarm simply enters running state to wait for time
+    setStatus('running');
+  };
+
+  const handleStop = () => {
+    setStatus('idle');
+  };
+
+  const handlePause = () => {
+     // For timer, we'd need to save remaining time, but for simplicity in this 
+     // minimalist app, we go back to idle or we could implement pause logic.
+     // Let's implement simple Pause for Timer.
+     setStatus('paused');
+  };
+
+  const handleResume = () => {
+    if (appMode === 'timer') {
+        endTimeRef.current = Date.now() + (remainingSeconds * 1000);
+    }
+    setStatus('running');
+  };
+
+  // Input Handlers
+  const handleTimerChange = (field: 'h'|'m'|'s', valStr: string) => {
+    let val = parseInt(valStr, 10);
+    if (isNaN(val)) val = 0;
+    if (field === 's' && val > 59) val = 59;
+    if (field === 'm' && val > 59) val = 59;
+    if (field === 'h' && val > 99) val = 99;
+    setTimerInput(prev => ({...prev, [field]: val}));
+  };
+
+  const handleAlarmChange = (field: 'h'|'m', valStr: string) => {
+    let val = parseInt(valStr, 10);
+    if (isNaN(val)) val = 0;
+    if (field === 'm' && val > 59) val = 59;
+    if (field === 'h' && val > 23) val = 23;
+    setAlarmInput(prev => ({...prev, [field]: val}));
+  };
+
+  // --- RENDER HELPERS ---
+
+  // Determine what numbers to show
+  let displayH, displayM, displayS;
+  
+  if (appMode === 'timer') {
+    if (status === 'idle') {
+      displayH = timerInput.h;
+      displayM = timerInput.m;
+      displayS = timerInput.s;
+    } else {
+      displayH = Math.floor(remainingSeconds / 3600);
+      displayM = Math.floor((remainingSeconds % 3600) / 60);
+      displayS = remainingSeconds % 60;
+    }
+  } else {
+    // Alarm Mode
+    if (status === 'idle') {
+       displayH = alarmInput.h;
+       displayM = alarmInput.m;
+       displayS = 0; // Don't show seconds input for alarm usually
+    } else {
+       // Show current time while waiting for alarm? Or show target? 
+       // Minimalist design: Show current time ticking towards alarm
+       displayH = currentTime.getHours();
+       displayM = currentTime.getMinutes();
+       displayS = currentTime.getSeconds();
+    }
+  }
+
+  const showSeconds = appMode === 'timer' || status === 'running';
+
   return (
     <>
       <NoiseOverlay />
-      <LiquidTextFilter />
       <FluidBackground />
       
-      {/* Main Container */}
-      <div className="relative w-full h-screen bg-[#050505] text-[#e0e0e0] flex flex-col justify-between overflow-hidden font-['Inter'] selection:bg-white selection:text-black">
+      <div className="relative w-full h-screen bg-[#050505] text-[#e0e0e0] flex flex-col justify-center items-center overflow-hidden font-['Inter'] selection:bg-white selection:text-black">
         
-        {/* Navbar */}
-        <nav className="w-full px-6 py-6 md:px-12 md:py-8 flex justify-between items-center z-40 mix-blend-difference">
-          <div className="flex items-center gap-3 group cursor-pointer">
-            <div className="w-1.5 h-1.5 bg-white rounded-full group-hover:scale-[3] group-hover:blur-[1px] transition-all duration-700 ease-[cubic-bezier(0.19,1,0.22,1)]"></div>
-            <span className="text-xs font-semibold tracking-[0.25em] uppercase opacity-90 group-hover:tracking-[0.35em] transition-all duration-700">
-              Aether
-            </span>
-          </div>
-          
-          <div className="flex gap-10">
-            {['Work', 'Studio', 'Contact'].map((item, i) => (
-              <span 
-                key={item} 
-                className="hidden md:block text-[10px] font-medium tracking-[0.2em] uppercase opacity-50 hover:opacity-100 hover:blur-[0.5px] cursor-pointer transition-all duration-500"
-                style={{ transitionDelay: `${i * 50}ms` }}
+        {/* Top Toggle Switch */}
+        <nav className="absolute top-0 left-0 w-full px-8 py-8 flex justify-center items-center z-40">
+           <div className="flex gap-8 bg-white/5 px-6 py-3 rounded-full border border-white/5 backdrop-blur-sm">
+              <button 
+                onClick={() => { setAppMode('timer'); setStatus('idle'); }}
+                className={`text-[10px] font-bold tracking-[0.25em] uppercase transition-all duration-500 ${appMode === 'timer' ? 'text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'text-white/30 hover:text-white/60'}`}
               >
-                {item}
-              </span>
-            ))}
-            <span className="md:hidden text-[10px] font-medium tracking-[0.2em] uppercase opacity-60">Menu</span>
-          </div>
+                Timer
+              </button>
+              <div className="w-px h-3 bg-white/20"></div>
+              <button 
+                onClick={() => { setAppMode('alarm'); setStatus('idle'); }}
+                className={`text-[10px] font-bold tracking-[0.25em] uppercase transition-all duration-500 ${appMode === 'alarm' ? 'text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]' : 'text-white/30 hover:text-white/60'}`}
+              >
+                Wecker
+              </button>
+           </div>
         </nav>
 
-        {/* Hero Section Content */}
-        <main className="flex-1 flex flex-col items-center justify-center relative z-10 w-full perspective-[1000px]">
-           
-           {/* Typography Composition */}
-           <div className="relative flex flex-col items-center z-20">
-              
-              {/* Main Headline with Liquid Filter & Reveal Animation */}
-              <h1 className="text-center font-normal leading-[0.85] tracking-[-0.04em] mix-blend-difference pointer-events-none select-none">
-                 <div className="overflow-hidden py-4">
-                    <span 
-                      className="block text-[13vw] md:text-[9.5rem] animate-[slideUp_1.4s_cubic-bezier(0.16,1,0.3,1)_forwards] opacity-0 translate-y-full"
-                      style={{ filter: 'url(#liquid-flow)' }}
-                    >
-                      LIQUID
-                    </span>
+        {/* MAIN DISPLAY */}
+        <main className="relative z-10 flex flex-col items-center justify-center w-full">
+          
+          <div className="flex items-center justify-center gap-2 md:gap-4 lg:gap-8">
+             
+             {/* HOURS */}
+             {status === 'idle' ? (
+                 <div className="relative group">
+                    <input 
+                       type="number"
+                       value={pad(displayH)}
+                       onChange={(e) => appMode === 'timer' ? handleTimerChange('h', e.target.value) : handleAlarmChange('h', e.target.value)}
+                       className="w-[20vw] md:w-[220px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
+                    />
+                    <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] tracking-[0.3em] uppercase text-white/30">Hr</span>
                  </div>
-                 <div className="overflow-hidden py-4 -mt-4 md:-mt-8">
-                    <span 
-                      className="block text-[13vw] md:text-[9.5rem] text-[#444] animate-[slideUp_1.6s_cubic-bezier(0.16,1,0.3,1)_0.1s_forwards] opacity-0 translate-y-full"
-                      style={{ filter: 'url(#liquid-flow)' }}
-                    >
-                      MATTER
-                    </span>
-                 </div>
-              </h1>
-              
-              {/* CTA Button */}
-              <div className="mt-12 md:mt-16 animate-[fadeIn_1.2s_ease-out_1s_forwards] opacity-0 hover:scale-[1.02] transition-transform duration-700">
-                <LiquidButton 
-                  text="Enter Void" 
-                  width={260} 
-                  height={76} 
-                />
-              </div>
+             ) : (
+                <LiquidDigit value={pad(displayH)} width={window.innerWidth < 768 ? 100 : 220} height={window.innerWidth < 768 ? 140 : 280} />
+             )}
 
-              {/* Subtext */}
-              <div className="mt-20 max-w-xs text-center px-4 overflow-hidden mix-blend-screen">
-                 <p className="text-neutral-500 text-[10px] md:text-[11px] leading-relaxed uppercase tracking-[0.3em] animate-[slideUpSmall_1s_ease-out_1.2s_forwards] opacity-0 translate-y-4">
-                    Digital materiality in <br/> perpetual motion.
-                 </p>
-              </div>
-           </div>
+             <span className="text-[10vw] md:text-[8rem] text-neutral-600 font-light -translate-y-2 md:-translate-y-6">:</span>
+
+             {/* MINUTES */}
+             {status === 'idle' ? (
+                 <div className="relative group">
+                    <input 
+                       type="number"
+                       value={pad(displayM)}
+                       onChange={(e) => appMode === 'timer' ? handleTimerChange('m', e.target.value) : handleAlarmChange('m', e.target.value)}
+                       className="w-[20vw] md:w-[220px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
+                    />
+                    <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] tracking-[0.3em] uppercase text-white/30">Min</span>
+                 </div>
+             ) : (
+                <LiquidDigit value={pad(displayM)} width={window.innerWidth < 768 ? 100 : 220} height={window.innerWidth < 768 ? 140 : 280} />
+             )}
+
+             {/* SECONDS (Only for Timer or Active state) */}
+             {showSeconds && (
+               <>
+                 <span className="text-[10vw] md:text-[8rem] text-neutral-600 font-light -translate-y-2 md:-translate-y-6">:</span>
+                 {status === 'idle' ? (
+                     <div className="relative group">
+                        <input 
+                           type="number"
+                           value={pad(displayS)}
+                           onChange={(e) => handleTimerChange('s', e.target.value)}
+                           className="w-[20vw] md:w-[220px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
+                        />
+                        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] tracking-[0.3em] uppercase text-white/30">Sec</span>
+                     </div>
+                 ) : (
+                    <LiquidDigit value={pad(displayS)} width={window.innerWidth < 768 ? 100 : 220} height={window.innerWidth < 768 ? 140 : 280} />
+                 )}
+               </>
+             )}
+
+          </div>
+
+          {/* Alarm Status Text */}
+          {appMode === 'alarm' && status === 'running' && (
+             <div className="mt-12 text-xs tracking-[0.4em] uppercase text-white/40 animate-pulse">
+                Alarm set for {pad(alarmInput.h)}:{pad(alarmInput.m)}
+             </div>
+          )}
+
+          {/* Controls */}
+          <div className="mt-20 md:mt-32 h-24">
+            <AnimatePresence mode="wait">
+              
+              {status === 'idle' && (
+                <motion.div 
+                  key="start"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                >
+                  <LiquidButton 
+                    text={appMode === 'timer' ? "Start Timer" : "Set Alarm"} 
+                    onClick={handleStart}
+                    width={240}
+                  />
+                </motion.div>
+              )}
+
+              {status === 'running' && (
+                 <motion.div 
+                  key="running-controls"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="flex gap-6"
+                 >
+                   {appMode === 'timer' ? (
+                     <>
+                        <LiquidButton text="Pause" onClick={handlePause} width={180} />
+                        <div onClick={handleStop} className="h-[80px] w-[80px] rounded-full border border-white/10 flex items-center justify-center hover:bg-white/5 cursor-pointer transition-colors group">
+                           <div className="w-3 h-3 bg-red-500/50 group-hover:bg-red-500 rounded-sm transition-colors"></div>
+                        </div>
+                     </>
+                   ) : (
+                      <LiquidButton text="Cancel Alarm" onClick={handleStop} width={220} />
+                   )}
+                 </motion.div>
+              )}
+
+              {status === 'paused' && (
+                <motion.div 
+                  key="paused"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="flex gap-6"
+                >
+                   <LiquidButton text="Resume" onClick={handleResume} width={180} />
+                   <div onClick={handleStop} className="h-[80px] w-[80px] rounded-full border border-white/10 flex items-center justify-center hover:bg-white/5 cursor-pointer transition-colors group">
+                       <span className="text-[10px] tracking-widest text-white/50 group-hover:text-white">RST</span>
+                   </div>
+                </motion.div>
+              )}
+
+              {status === 'ringing' && (
+                <motion.div 
+                  key="ringing"
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="flex flex-col items-center gap-6"
+                >
+                   <div className="text-2xl uppercase tracking-[0.5em] text-white animate-[pulse_0.2s_infinite]">
+                     {appMode === 'timer' ? "Time's Up" : "Wake Up"}
+                   </div>
+                   <LiquidButton text="Dismiss" onClick={handleStop} width={240} />
+                </motion.div>
+              )}
+
+            </AnimatePresence>
+          </div>
 
         </main>
-
-        {/* Footer info */}
-        <footer className="w-full px-6 py-6 md:px-12 md:py-8 flex justify-between items-end z-40 mix-blend-difference">
-            <div className="flex flex-col gap-2">
-               <span className="text-[9px] text-neutral-500 uppercase tracking-[0.2em] opacity-60">( 2026 Edition )</span>
-            </div>
-            
-            <div className="hidden md:flex flex-col items-end gap-2">
-               <div className="w-px h-12 bg-gradient-to-b from-transparent via-white/50 to-transparent animate-pulse"></div>
-            </div>
-        </footer>
-
-        {/* Custom CSS for Animations */}
-        <style>{`
-          @keyframes slideUp {
-            from { transform: translateY(140%) skewY(5deg); opacity: 0; }
-            to { transform: translateY(0) skewY(0deg); opacity: 1; }
-          }
-          @keyframes slideUpSmall {
-            from { transform: translateY(40px); opacity: 0; blur: 10px; }
-            to { transform: translateY(0); opacity: 1; blur: 0px; }
-          }
-          @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.9) translateY(20px); }
-            to { opacity: 1; transform: scale(1) translateY(0); }
-          }
+      </div>
+      
+      <style>{`
           @keyframes blob {
             0% { transform: translate(0px, 0px) scale(1); }
-            33% { transform: translate(40px, -60px) scale(1.1); }
-            66% { transform: translate(-30px, 30px) scale(0.95); }
+            33% { transform: translate(30px, -50px) scale(1.1); }
+            66% { transform: translate(-20px, 20px) scale(0.95); }
             100% { transform: translate(0px, 0px) scale(1); }
           }
           .animate-blob {
@@ -153,12 +345,7 @@ export default function App() {
           .animation-delay-2000 {
             animation-delay: 2s;
           }
-          .animation-delay-4000 {
-            animation-delay: 5s;
-          }
-        `}</style>
-
-      </div>
+      `}</style>
     </>
   );
 }

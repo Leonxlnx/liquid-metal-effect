@@ -100,25 +100,26 @@ void main() {
     uv.y = 1. - uv.y;
     uv.x *= u_ratio;
     
-    // Standard diagonal calculation
     float diagonal = uv.x - uv.y;
     
     float t = .001 * u_time;
     vec2 img_uv = get_img_uv();
     vec4 img = texture(u_image_texture, img_uv);
     vec3 color = vec3(0.);
-    float opacity = 1.;
     
-    // Pure Monochrome Colors (No tint)
-    vec3 color1 = vec3(1.0, 1.0, 1.0); // Bright Silver/White
-    vec3 color2 = vec3(0.05, 0.05, 0.05); // Deep Dark Metallic
+    // CRITICAL FIX: Use the alpha channel of the input image as the mask
+    float opacity = img.a;
     
+    vec3 color1 = vec3(0.95, 0.95, 0.95); // Bright Chrome
+    vec3 color2 = vec3(0.1, 0.1, 0.1);    // Dark Steel
+    
+    // Use red channel as edge/height map, assuming black/white input
     float edge = img.r;
+    
     vec2 grad_uv = uv;
     grad_uv -= .5;
     float dist = length(grad_uv + vec2(0., .2 * diagonal));
     
-    // Constant rotation to prevent warping on wide aspect ratios
     grad_uv = rotate(grad_uv, 0.25 * PI); 
     
     float bulge = pow(1.8 * dist, 1.2);
@@ -131,46 +132,35 @@ void main() {
     float thin_strip_1_width = cycle_width * thin_strip_1_ratio;
     float thin_strip_2_width = cycle_width * thin_strip_2_ratio;
     
-    // Ensure full opacity inside the shape
-    opacity = 1.0; 
-    
-    // Reduced noise frequency for LARGER, SMOOTHER ripples (less wrinkles)
+    // Noise for liquid movement
     float noise = snoise(uv * 0.8 - t);
     
+    // Distortion logic: (1. - edge) means black pixels get more distortion
     edge += (1. - edge) * u_liquid * noise;
+    
     float refr = 0.;
     refr += (1. - bulge);
     refr = clamp(refr, 0., 1.);
     
-    // PATTERN DIRECTION
     float dir = grad_uv.x;
     dir += diagonal;
-    
-    // Increased wobble influence for "heavy liquid" feel
     dir -= 0.5 * noise;
-    
-    // Add subtle curvature based on Y and diagonal, but keep it smooth
     dir += .18 * (smoothstep(.1, .2, uv.y) * smoothstep(.4, .2, uv.y));
     dir += .03 * (smoothstep(.1, .2, 1. - uv.y) * smoothstep(.4, .2, 1. - uv.y));
-    dir *= (.8 + .2 * pow(uv.y, 2.)); // Slight stretch
-    
+    dir *= (.8 + .2 * pow(uv.y, 2.));
     dir *= cycle_width;
     dir -= t;
     
-    // REFRACTION (3D Effect)
     float refr_base = refr * u_refraction;
     refr_base += 0.02 * bulge * noise;
     
-    // Very slight offset for "Silver" feel, but not enough to look like a rainbow
     float refr_r = refr_base;
     float refr_g = refr_base * 0.99; 
     float refr_b = refr_base * 0.98;
 
     vec3 w = vec3(thin_strip_1_width, thin_strip_2_width, wide_strip_ratio);
-    // Smooth the stripe width based on height to give 3D volume
     w[1] -= .02 * smoothstep(.0, 1., bulge);
 
-    // Calculate R, G, B channels with almost identical paths
     float stripe_r = mod(dir + refr_r, 1.);
     float stripe_g = mod(dir + refr_g, 1.);
     float stripe_b = mod(dir + refr_b, 1.);
@@ -181,6 +171,7 @@ void main() {
     
     color = vec3(r, g, b);
     
+    // Final alpha composition
     fragColor = vec4(color, opacity);
 }`;
 
@@ -196,6 +187,8 @@ export const parseLogoImage = async (file: File) => {
                 canvas.height = img.height;
                 const ctx = canvas.getContext('2d');
                 if (!ctx) return reject('No context');
+                // Ensure clear canvas for transparency
+                ctx.clearRect(0,0, canvas.width, canvas.height);
                 ctx.drawImage(img, 0, 0);
                 resolve({ imageData: ctx.getImageData(0, 0, img.width, img.height) });
             };
@@ -230,7 +223,7 @@ const MetallicPaint: React.FC<MetallicPaintProps> = ({ imageData, params, classN
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        const gl = canvas.getContext('webgl2');
+        const gl = canvas.getContext('webgl2', { alpha: true, premultipliedAlpha: false });
         if (!gl) return;
 
         // Compile shaders
@@ -300,10 +293,8 @@ const MetallicPaint: React.FC<MetallicPaintProps> = ({ imageData, params, classN
 
         let animationFrameId: number;
         
-        // Animation State
         let lastTime = performance.now();
         let totalTime = 0;
-        // Initialize with initial props to prevent jump on start
         const currentParams = { ...paramsRef.current };
 
         const render = () => {
@@ -312,10 +303,7 @@ const MetallicPaint: React.FC<MetallicPaintProps> = ({ imageData, params, classN
             const dt = now - lastTime;
             lastTime = now;
             
-            // LERP Factor: 0.05 provides a very smooth, organic transition
             const lerp = 0.05;
-
-            // Smoothly interpolate all parameters
             currentParams.speed += (targetParams.speed - currentParams.speed) * lerp;
             currentParams.liquid += (targetParams.liquid - currentParams.liquid) * lerp;
             currentParams.patternScale += (targetParams.patternScale - currentParams.patternScale) * lerp;
@@ -323,12 +311,8 @@ const MetallicPaint: React.FC<MetallicPaintProps> = ({ imageData, params, classN
             currentParams.edge += (targetParams.edge - currentParams.edge) * lerp;
             currentParams.patternBlur += (targetParams.patternBlur - currentParams.patternBlur) * lerp;
 
-            // Accumulate time based on the SMOOTHED speed
-            // This prevents the "jump" when speed changes, because we add relative time
-            // rather than calculating absolute time * speed.
             totalTime += dt * currentParams.speed;
 
-            // Resize canvas if needed
             const displayWidth = canvas.clientWidth;
             const displayHeight = canvas.clientHeight;
             if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
@@ -337,7 +321,6 @@ const MetallicPaint: React.FC<MetallicPaintProps> = ({ imageData, params, classN
                 gl.viewport(0, 0, canvas.width, canvas.height);
             }
 
-            // Uniforms
             gl.uniform1i(uImageTextureLoc, 0);
             gl.uniform1f(uTimeLoc, totalTime);
             gl.uniform1f(uRatioLoc, canvas.width / canvas.height);
