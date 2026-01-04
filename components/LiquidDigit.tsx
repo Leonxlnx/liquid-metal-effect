@@ -22,6 +22,7 @@ const LiquidDigit: React.FC<LiquidDigitProps> = ({
       // Create SVG blob. Text must be BLACK (#000000) because the shader calculates liquid
       // based on (1.0 - brightness). Black = 0 = Max Liquid Effect.
       // Background is transparent (alpha 0).
+      // FONT SIZE REDUCED to 0.7 to prevent clipping of liquid edges
       const svgString = `
         <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
           <style>
@@ -37,7 +38,7 @@ const LiquidDigit: React.FC<LiquidDigitProps> = ({
             dominant-baseline="middle" 
             text-anchor="middle" 
             class="text" 
-            font-size="${height * 0.85}px"
+            font-size="${height * 0.7}px"
           >${value}</text>
         </svg>
       `;

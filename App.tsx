@@ -27,6 +27,29 @@ const FluidBackground = () => (
 
 const pad = (n: number) => n.toString().padStart(2, '0');
 
+const playBeep = () => {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.1);
+    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.5);
+
+    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.6);
+};
+
 // --- MAIN APP ---
 
 export default function App() {
@@ -42,14 +65,27 @@ export default function App() {
   const [alarmInput, setAlarmInput] = useState({ h: 8, m: 0 });
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Audio Ref
-  const audioContextRef = useRef<AudioContext | null>(null);
+  // Dimensions
+  const [width, setWidth] = useState(window.innerWidth);
+
+  useEffect(() => {
+    const handleResize = () => setWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const isMobile = width < 768;
+  // Increased widths to prevent clipping of liquid effect
+  const digitWidth = isMobile ? 100 : 300; 
+  const digitHeight = isMobile ? 140 : 280;
+  const separatorWidth = isMobile ? 30 : 80;
 
   // --- LOGIC ---
 
   // Clock Ticker for Alarm check & Timer loop
   useEffect(() => {
     let animationFrameId: number;
+    let lastRingTime = 0;
 
     const tick = () => {
       const now = Date.now();
@@ -62,6 +98,7 @@ export default function App() {
           if (left <= 0) {
             setRemainingSeconds(0);
             setStatus('ringing');
+            playBeep();
           } else {
             setRemainingSeconds(left);
           }
@@ -73,9 +110,20 @@ export default function App() {
             nowObj.getMinutes() === alarmInput.m && 
             nowObj.getSeconds() === 0
           ) {
-            setStatus('ringing');
+            // Only trigger once per second
+            if (now - lastRingTime > 1500) {
+                setStatus('ringing');
+                playBeep();
+                lastRingTime = now;
+            }
           }
         }
+      } else if (status === 'ringing') {
+         // Loop beep every 2 seconds if ringing
+         if (now - lastRingTime > 2000) {
+             playBeep();
+             lastRingTime = now;
+         }
       }
 
       animationFrameId = requestAnimationFrame(tick);
@@ -102,9 +150,6 @@ export default function App() {
   };
 
   const handlePause = () => {
-     // For timer, we'd need to save remaining time, but for simplicity in this 
-     // minimalist app, we go back to idle or we could implement pause logic.
-     // Let's implement simple Pause for Timer.
      setStatus('paused');
   };
 
@@ -135,7 +180,6 @@ export default function App() {
 
   // --- RENDER HELPERS ---
 
-  // Determine what numbers to show
   let displayH, displayM, displayS;
   
   if (appMode === 'timer') {
@@ -153,10 +197,9 @@ export default function App() {
     if (status === 'idle') {
        displayH = alarmInput.h;
        displayM = alarmInput.m;
-       displayS = 0; // Don't show seconds input for alarm usually
+       displayS = 0;
     } else {
-       // Show current time while waiting for alarm? Or show target? 
-       // Minimalist design: Show current time ticking towards alarm
+       // Alarm Running: Show current time
        displayH = currentTime.getHours();
        displayM = currentTime.getMinutes();
        displayS = currentTime.getSeconds();
@@ -194,56 +237,71 @@ export default function App() {
         {/* MAIN DISPLAY */}
         <main className="relative z-10 flex flex-col items-center justify-center w-full">
           
-          <div className="flex items-center justify-center gap-2 md:gap-4 lg:gap-8">
+          <div className="flex items-center justify-center -space-x-4 md:-space-x-8">
              
              {/* HOURS */}
              {status === 'idle' ? (
-                 <div className="relative group">
+                 <div className="relative group z-30">
                     <input 
                        type="number"
                        value={pad(displayH)}
                        onChange={(e) => appMode === 'timer' ? handleTimerChange('h', e.target.value) : handleAlarmChange('h', e.target.value)}
-                       className="w-[20vw] md:w-[220px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
+                       className="w-[20vw] md:w-[280px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
                     />
                     <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] tracking-[0.3em] uppercase text-white/30">Hr</span>
                  </div>
              ) : (
-                <LiquidDigit value={pad(displayH)} width={window.innerWidth < 768 ? 100 : 220} height={window.innerWidth < 768 ? 140 : 280} />
+                <LiquidDigit value={pad(displayH)} width={digitWidth} height={digitHeight} />
              )}
 
-             <span className="text-[10vw] md:text-[8rem] text-neutral-600 font-light -translate-y-2 md:-translate-y-6">:</span>
+             {/* SEPARATOR */}
+             <div className="z-20 flex items-center justify-center opacity-80">
+                 {status === 'idle' ? (
+                     <span className="text-[10vw] md:text-[8rem] text-neutral-600 font-light -translate-y-2 md:-translate-y-6">:</span>
+                 ) : (
+                     <LiquidDigit value=":" width={separatorWidth} height={digitHeight} />
+                 )}
+             </div>
 
              {/* MINUTES */}
              {status === 'idle' ? (
-                 <div className="relative group">
+                 <div className="relative group z-30">
                     <input 
                        type="number"
                        value={pad(displayM)}
                        onChange={(e) => appMode === 'timer' ? handleTimerChange('m', e.target.value) : handleAlarmChange('m', e.target.value)}
-                       className="w-[20vw] md:w-[220px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
+                       className="w-[20vw] md:w-[280px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
                     />
                     <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] tracking-[0.3em] uppercase text-white/30">Min</span>
                  </div>
              ) : (
-                <LiquidDigit value={pad(displayM)} width={window.innerWidth < 768 ? 100 : 220} height={window.innerWidth < 768 ? 140 : 280} />
+                <LiquidDigit value={pad(displayM)} width={digitWidth} height={digitHeight} />
              )}
 
-             {/* SECONDS (Only for Timer or Active state) */}
+             {/* SECONDS */}
              {showSeconds && (
                <>
-                 <span className="text-[10vw] md:text-[8rem] text-neutral-600 font-light -translate-y-2 md:-translate-y-6">:</span>
+                 {/* SEPARATOR */}
+                 <div className="z-20 flex items-center justify-center opacity-80">
+                     {status === 'idle' ? (
+                         <span className="text-[10vw] md:text-[8rem] text-neutral-600 font-light -translate-y-2 md:-translate-y-6">:</span>
+                     ) : (
+                         <LiquidDigit value=":" width={separatorWidth} height={digitHeight} />
+                     )}
+                 </div>
+
                  {status === 'idle' ? (
-                     <div className="relative group">
+                     <div className="relative group z-30">
                         <input 
                            type="number"
                            value={pad(displayS)}
                            onChange={(e) => handleTimerChange('s', e.target.value)}
-                           className="w-[20vw] md:w-[220px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
+                           className="w-[20vw] md:w-[280px] bg-transparent text-center text-[20vw] md:text-[14rem] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-white via-neutral-200 to-neutral-500 outline-none caret-white/50"
                         />
                         <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] tracking-[0.3em] uppercase text-white/30">Sec</span>
                      </div>
                  ) : (
-                    <LiquidDigit value={pad(displayS)} width={window.innerWidth < 768 ? 100 : 220} height={window.innerWidth < 768 ? 140 : 280} />
+                    <LiquidDigit value={pad(displayS)} width={digitWidth} height={digitHeight} />
                  )}
                </>
              )}
